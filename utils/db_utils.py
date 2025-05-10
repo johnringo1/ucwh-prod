@@ -15,10 +15,9 @@ def load_wash_data():
     if not all([server, database, username, password]):
         raise ValueError("Database credentials not properly configured")
     
-    # Build connection string for Azure SQL with ODBC 18
-    # Adding TrustServerCertificate=yes which may be needed in cloud environments
+    # Build connection string using ODBC Driver 17 which is available in Streamlit Cloud
     connection_string = (
-        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
         f"SERVER={server};"
         f"DATABASE={database};"
         f"UID={username};"
@@ -59,7 +58,7 @@ def load_wash_data():
         return df
         
     except Exception as e:
-        # Provide more detailed error information
+        # Provide detailed error information
         error_msg = str(e)
         if "Could not find driver" in error_msg or "Can't open lib" in error_msg:
             available_drivers = pyodbc.drivers()
