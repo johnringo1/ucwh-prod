@@ -11,7 +11,7 @@ def check_password():
     """Returns `True` if the user had the correct password."""
     def password_entered():
         """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == secrets.get("DASHBOARD_PASSWORD", "UCWashDashboard2025"):
+        if st.session_state["password"] == st.secrets.get("DASHBOARD_PASSWORD", "UCWashDashboard2025"):
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # Don't store the password
         else:
