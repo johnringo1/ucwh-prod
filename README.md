@@ -25,7 +25,8 @@ Interactive dashboard for analyzing car wash data across multiple locations.
 For local development, create a file `.streamlit/secrets.toml` with:
 
 ```toml
-DB_SERVER = "ucw.database.windows.net"
-DB_NAME = "UnitedCarwashProduction"
-DB_USER = "username"
-DB_PASSWORD = "password"
+DB_SERVER = "your_azure_server.database.windows.net"
+DB_NAME = "your_database_name"
+DB_USER = "your_username"
+DB_PASSWORD = "your_password"
+DASHBOARD_PASSWORD = "your_dashboard_password"
