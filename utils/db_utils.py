@@ -6,10 +6,14 @@ from streamlit import secrets
 def get_connection():
     """Create a connection to the database"""
     # Try to get credentials from streamlit secrets first, then environment variables
-    server = secrets.get("DB_SERVER", os.environ.get("DB_SERVER", "ucw.database.windows.net"))
-    database = secrets.get("DB_NAME", os.environ.get("DB_NAME", "UnitedCarwashProduction"))
-    username = secrets.get("DB_USER", os.environ.get("DB_USER", "ucwreader"))
-    password = secrets.get("DB_PASSWORD", os.environ.get("DB_PASSWORD", "mBSzLC4frVCJglpmSbbg"))
+    server = secrets.get("DB_SERVER", os.environ.get("DB_SERVER"))
+    database = secrets.get("DB_NAME", os.environ.get("DB_NAME"))
+    username = secrets.get("DB_USER", os.environ.get("DB_USER"))
+    password = secrets.get("DB_PASSWORD", os.environ.get("DB_PASSWORD"))
+    
+    # Check if credentials are available
+    if not all([server, database, username, password]):
+        raise ValueError("Database credentials not properly configured. Please set them in Streamlit secrets or environment variables.")
     
     conn_str = (
         f"Driver={{ODBC Driver 18 for SQL Server}};"
