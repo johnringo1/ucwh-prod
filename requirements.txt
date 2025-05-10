@@ -3,4 +3,3 @@ pandas==2.2.3
 numpy==2.2.5
 plotly==6.0.1
 pymssql==2.2.7
-python-dotenv==1.0.0
