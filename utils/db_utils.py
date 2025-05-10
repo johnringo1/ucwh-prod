@@ -1,11 +1,12 @@
-import pymssql  # Change from pyodbc
 import pandas as pd
 import os
 import streamlit as st
+import sqlalchemy
+import urllib.parse
 
 def get_connection():
-    """Create a connection to the database"""
-    # Try to get credentials from streamlit secrets first, then environment variables
+    """Create a connection to the database using SQLAlchemy"""
+    # Get credentials
     server = st.secrets.get("DB_SERVER", os.environ.get("DB_SERVER"))
     database = st.secrets.get("DB_NAME", os.environ.get("DB_NAME"))
     username = st.secrets.get("DB_USER", os.environ.get("DB_USER"))
@@ -13,23 +14,23 @@ def get_connection():
     
     # Check if credentials are available
     if not all([server, database, username, password]):
-        raise ValueError("Database credentials not properly configured. Please set them in Streamlit secrets or environment variables.")
+        raise ValueError("Database credentials not properly configured")
+    
+    # URL encode the password to handle special characters
+    quoted_password = urllib.parse.quote_plus(password)
+    
+    # Create SQLAlchemy connection string for MS SQL Server
+    connection_string = f"mssql+pytds://{username}:{quoted_password}@{server}/{database}"
     
     try:
-        # Create connection using pymssql instead of pyodbc
-        conn = pymssql.connect(
-            server=server,
-            database=database,
-            user=username,
-            password=password
-        )
-        return conn
+        # Return SQLAlchemy engine
+        return sqlalchemy.create_engine(connection_string)
     except Exception as e:
         raise ConnectionError(f"Failed to connect to database: {str(e)}")
 
 def load_wash_data():
     """Load wash data from database"""
-    conn = get_connection()
+    engine = get_connection()
     
     query = """
     SELECT 
@@ -45,12 +46,10 @@ def load_wash_data():
     """
     
     try:
-        df = pd.read_sql(query, conn)
+        df = pd.read_sql(query, engine)
         df['date'] = pd.to_datetime(df['date'])
         df['total_count'] = df['count'] + df['rewash_count']
         df['rewash_percentage'] = (df['rewash_count'] * 100 / df['count']).fillna(0)
         return df
     except Exception as e:
         raise Exception(f"Error loading data: {str(e)}")
-    finally:
-        conn.close()
