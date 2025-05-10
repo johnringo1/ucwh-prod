@@ -6,7 +6,37 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from utils.db_utils import load_wash_data
 
-# Page configuration
+# Password protection function
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == "TexasLonghorns2025":  # Replace with your chosen password
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store the password
+        else:
+            st.session_state["password_correct"] = False
+
+    # Return True if the password is validated
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Show input for password
+    st.title("United Car Wash Dashboard")
+    st.write("Please enter the password to access this dashboard.")
+    st.text_input(
+        "Password", type="password", on_change=password_entered, key="password"
+    )
+    if "password_correct" in st.session_state:
+        if not st.session_state["password_correct"]:
+            st.error("😕 Password incorrect")
+    return False
+
+# Check password before proceeding
+if not check_password():
+    st.stop()  # Stop execution if password is incorrect
+
+# Page configuration - only runs if password is correct
 st.set_page_config(page_title="United Car Wash Analytics", layout="wide")
 st.title("United Car Wash Time Series Analysis")
 
@@ -264,7 +294,8 @@ except Exception as e:
            - Check if any firewalls might be blocking the connection
         
         3. Database Driver Issues:
-           - This app uses pymssql instead of pyodbc for better cloud compatibility
+           - This app uses pyodbc for database connectivity
+           - If you're having issues, try switching to another driver in db_utils.py
         
         ### SQL Query Issues
         
