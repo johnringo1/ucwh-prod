@@ -172,3 +172,13 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Streamlit specific
+.streamlit/secrets.toml
+
+# VS Code (if you use it)
+.vscode/
+
+# Additional credential files that might be used
+credentials.json
+config.ini
