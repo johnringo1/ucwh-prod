@@ -15,8 +15,17 @@ def load_wash_data():
     if not all([server, database, username, password]):
         raise ValueError("Database credentials not properly configured")
     
-    # Build connection string for Azure SQL
-    connection_string = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password}"
+    # Build connection string for Azure SQL with ODBC 18
+    # Adding TrustServerCertificate=yes which may be needed in cloud environments
+    connection_string = (
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"SERVER={server};"
+        f"DATABASE={database};"
+        f"UID={username};"
+        f"PWD={password};"
+        f"TrustServerCertificate=yes;"
+        f"Encrypt=yes;"
+    )
     
     try:
         # Connect to database
@@ -50,4 +59,9 @@ def load_wash_data():
         return df
         
     except Exception as e:
-        raise Exception(f"Error loading data: {str(e)}")
+        # Provide more detailed error information
+        error_msg = str(e)
+        if "Could not find driver" in error_msg or "Can't open lib" in error_msg:
+            available_drivers = pyodbc.drivers()
+            error_msg += f"\nAvailable drivers: {available_drivers}"
+        raise Exception(f"Error loading data: {error_msg}")
