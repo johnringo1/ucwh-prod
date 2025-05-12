@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from utils.db_utils import load_wash_data
+from utils.db_utils import load_wash_data, load_subscription_data
 import os
 
 # Password protection function
@@ -58,17 +58,29 @@ st.set_page_config(page_title="United Car Wash Analytics", layout="wide")
 st.title("United Car Wash Time Series Analysis")
 
 # Create tabs for better organization
-tab1, tab2, tab3 = st.tabs(["Overview", "Site Analysis", "Wash Types"])
+tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Site Analysis", "Wash Types", "Subscriptions"])
 
 # Add a try/except block to handle database connection issues gracefully
 try:
     # Load the data
     with st.spinner("Loading data from database..."):
         df = load_wash_data()
+        
+        # Load subscription data
+        with st.spinner("Loading subscription data..."):
+            sub_df = load_subscription_data()
     
     # Calculate date range
     min_date = df['date'].min().date()  # Convert to Python date for the date picker
     max_date = df['date'].max().date()  # Convert to Python date for the date picker
+    
+    # Calculate subscription date range
+    sub_min_date = sub_df['date'].min().date() if not sub_df.empty else min_date
+    sub_max_date = sub_df['date'].max().date() if not sub_df.empty else max_date
+    
+    # Use the overall min and max dates for consistency
+    overall_min_date = min(min_date, sub_min_date)
+    overall_max_date = max(max_date, sub_max_date)
     
     # Create sidebar for filters
     st.sidebar.header("Filters")
@@ -76,16 +88,16 @@ try:
     # Date range selector
     date_range = st.sidebar.date_input(
         "Select Date Range",
-        [max_date - timedelta(days=90), max_date],
-        min_value=min_date,
-        max_value=max_date
+        [overall_max_date - timedelta(days=90), overall_max_date],
+        min_value=overall_min_date,
+        max_value=overall_max_date
     )
     
     if len(date_range) == 2:
         start_date, end_date = date_range
     else:
         start_date = date_range[0]
-        end_date = max_date
+        end_date = overall_max_date
     
     # Filter data - IMPORTANT: Convert the date objects back to strings for filtering
     start_date_str = start_date.strftime('%Y-%m-%d')
@@ -107,13 +119,90 @@ try:
         filtered_df = df[(df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
                         (df['date'].dt.strftime('%Y-%m-%d') <= end_date_str) & 
                         (df['site_id'].isin(selected_sites))]
+        
+        # Filter subscription data similarly
+        filtered_sub_df = sub_df[(sub_df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
+                              (sub_df['date'].dt.strftime('%Y-%m-%d') <= end_date_str) & 
+                              (sub_df['site_id'].isin(selected_sites))]
     else:
         filtered_df = df[(df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
                         (df['date'].dt.strftime('%Y-%m-%d') <= end_date_str)]
+        
+        # Filter subscription data similarly
+        filtered_sub_df = sub_df[(sub_df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
+                              (sub_df['date'].dt.strftime('%Y-%m-%d') <= end_date_str)]
+    
+    # Add data export feature in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.header("Data Export")
+    
+    # Add data source information
+    st.sidebar.caption(f"Data updated through: {max_date.strftime('%b %d, %Y')}")
+    
+    # Create export options
+    export_options = st.sidebar.expander("Export Options")
+    with export_options:
+        # Raw data export
+        csv_raw = filtered_df.to_csv(index=False)
+        st.download_button(
+            "Download Wash Data (CSV)",
+            csv_raw,
+            f"ucw_raw_data_{start_date_str}_to_{end_date_str}.csv",
+            "text/csv",
+            key="download-raw-csv",
+            help="Export the raw filtered wash data to a CSV file"
+        )
+        
+        # Subscription data export
+        if not filtered_sub_df.empty:
+            csv_sub = filtered_sub_df.to_csv(index=False)
+            st.download_button(
+                "Download Subscription Data (CSV)",
+                csv_sub,
+                f"ucw_subscription_data_{start_date_str}_to_{end_date_str}.csv",
+                "text/csv",
+                key="download-sub-csv",
+                help="Export the subscription data to a CSV file"
+            )
+        
+        # Daily aggregated data export
+        if not filtered_df.empty:
+            daily_agg = filtered_df.groupby([filtered_df['date'].dt.date, 'site_id']).agg({
+                'count': 'sum',
+                'rewash_count': 'sum',
+                'total_count': 'sum'
+            }).reset_index()
+            csv_daily = daily_agg.to_csv(index=False)
+            st.download_button(
+                "Download Daily Summary (CSV)",
+                csv_daily,
+                f"ucw_daily_summary_{start_date_str}_to_{end_date_str}.csv",
+                "text/csv",
+                key="download-daily-csv",
+                help="Export daily aggregated data by site"
+            )
+        
+        # Monthly aggregated data export
+        if not filtered_df.empty:
+            filtered_df['year_month'] = filtered_df['date'].dt.strftime('%Y-%m')
+            monthly_agg = filtered_df.groupby(['year_month', 'site_id']).agg({
+                'count': 'sum',
+                'rewash_count': 'sum',
+                'total_count': 'sum'
+            }).reset_index()
+            csv_monthly = monthly_agg.to_csv(index=False)
+            st.download_button(
+                "Download Monthly Summary (CSV)",
+                csv_monthly,
+                f"ucw_monthly_summary_{start_date_str}_to_{end_date_str}.csv",
+                "text/csv",
+                key="download-monthly-csv",
+                help="Export monthly aggregated data by site"
+            )
     
     # Check if data exists after filtering
     if filtered_df.empty:
-        st.warning("No data available for the selected filters. Please adjust your selection.")
+        st.warning("No wash data available for the selected filters. Please adjust your selection.")
     else:
         # Calculate aggregate statistics first for consistency
         total_washes = filtered_df['count'].sum()
@@ -252,6 +341,220 @@ try:
                 xaxis={'categoryorder': 'array', 'categoryarray': monthly_data['formatted_month'].tolist()}
             )
         
+        # Subscription data visualization preparation
+        if not filtered_sub_df.empty:
+            # Calculate subscription metrics
+            total_active = filtered_sub_df['active_count'].sum()
+            total_created = filtered_sub_df['created_count'].sum()
+            total_canceled = filtered_sub_df['canceled_count'].sum()
+            net_change = total_created - total_canceled
+            
+            # Active subscriptions over time
+            sub_daily = filtered_sub_df.groupby(filtered_sub_df['date'].dt.date).agg({
+                'active_count': 'sum',
+                'created_count': 'sum',
+                'canceled_count': 'sum',
+                'trial_count': 'sum',
+                'recurring_count': 'sum',
+                'net_change': 'sum'
+            }).reset_index()
+            
+            # Convert back to datetime for plotting
+            sub_daily['date'] = pd.to_datetime(sub_daily['date'])
+            
+            # Sort by date
+            sub_daily = sub_daily.sort_values('date')
+            
+            # Calculate rolling averages for subscriptions
+            sub_daily[f'{rolling_window}d_active_avg'] = sub_daily['active_count'].rolling(rolling_window).mean()
+            
+            # Create active subscriptions chart
+            active_fig = go.Figure()
+            
+            active_fig.add_trace(
+                go.Scatter(x=sub_daily['date'], y=sub_daily['active_count'], 
+                        mode='lines', name='Active Subscriptions')
+            )
+            
+            active_fig.add_trace(
+                go.Scatter(x=sub_daily['date'], y=sub_daily[f'{rolling_window}d_active_avg'], 
+                        mode='lines', name=f'{rolling_window}-Day Rolling Avg',
+                        line=dict(color='red'))
+            )
+            
+            active_fig.update_layout(
+                title_text="Active Subscriptions Over Time",
+                xaxis_title="Date",
+                yaxis_title="Number of Subscriptions",
+                legend=dict(x=0, y=1.1, orientation='h')
+            )
+            
+            # Create new subscriptions by day visualization
+            daily_created_fig = go.Figure()
+            
+            daily_created_fig.add_trace(
+                go.Bar(x=sub_daily['date'], y=sub_daily['created_count'], 
+                    name='New Subscriptions', marker_color='green')
+            )
+            
+            daily_created_fig.update_layout(
+                title_text="New Subscriptions Created By Day",
+                xaxis_title="Date",
+                yaxis_title="Number of Subscriptions",
+                legend=dict(x=0, y=1.1, orientation='h')
+            )
+            
+            # Monthly subscription metrics
+            # Extract year and month
+            filtered_sub_df['year_month'] = filtered_sub_df['date'].dt.strftime('%Y-%m')
+            
+            # Group by year-month
+            monthly_sub_data = filtered_sub_df.groupby('year_month').agg({
+                'created_count': 'sum',
+                'canceled_count': 'sum',
+                'active_count': 'mean',  # average active count for the month
+                'trial_count': 'mean',   # average trial count for the month
+                'recurring_count': 'mean' # average recurring count for the month
+            }).reset_index()
+            
+            # Calculate net change by month
+            monthly_sub_data['net_change'] = monthly_sub_data['created_count'] - monthly_sub_data['canceled_count']
+            
+            # Calculate churn rate (canceled / active at start of period)
+            # We'll use the previous month's active count as the denominator where possible
+            monthly_sub_data = monthly_sub_data.sort_values('year_month')
+            
+            # Make a copy of active_count shifted by one month for previous month's value
+            monthly_sub_data['prev_active'] = monthly_sub_data['active_count'].shift(1)
+            
+            # Calculate churn rate safely with error handling
+            try:
+                # Handle division by zero by using fillna
+                monthly_sub_data['churn_rate'] = monthly_sub_data.apply(
+                    lambda x: (x['canceled_count'] / x['prev_active'] * 100) if x['prev_active'] > 0 else 0, 
+                    axis=1
+                )
+            except:
+                # Fallback if the above fails
+                monthly_sub_data['churn_rate'] = 0
+            
+            # Add formatted month column for display
+            monthly_sub_data['formatted_month'] = monthly_sub_data['year_month'].apply(format_year_month)
+            
+            # Create waterfall chart for monthly new vs canceled
+            monthly_sub_fig = go.Figure()
+            
+            monthly_sub_fig.add_trace(
+                go.Bar(
+                    x=monthly_sub_data['formatted_month'],
+                    y=monthly_sub_data['created_count'],
+                    name='New Subscriptions',
+                    marker_color='green'
+                )
+            )
+            
+            monthly_sub_fig.add_trace(
+                go.Bar(
+                    x=monthly_sub_data['formatted_month'],
+                    y=-monthly_sub_data['canceled_count'],
+                    name='Canceled Subscriptions',
+                    marker_color='red'
+                )
+            )
+            
+            monthly_sub_fig.add_trace(
+                go.Scatter(
+                    x=monthly_sub_data['formatted_month'],
+                    y=monthly_sub_data['net_change'],
+                    mode='lines+markers',
+                    name='Net Change',
+                    line=dict(color='blue', width=3)
+                )
+            )
+            
+            monthly_sub_fig.update_layout(
+                title_text="Monthly Subscription Creation vs Cancellation",
+                xaxis_title="Month",
+                yaxis_title="Number of Subscriptions",
+                barmode='relative',
+                legend=dict(x=0, y=1.1, orientation='h'),
+                xaxis={'categoryorder': 'array', 'categoryarray': monthly_sub_data['formatted_month'].tolist()}
+            )
+            
+            # Create churn rate visualization
+            churn_fig = go.Figure()
+            
+            churn_fig.add_trace(
+                go.Bar(
+                    x=monthly_sub_data['formatted_month'],
+                    y=monthly_sub_data['churn_rate'],
+                    name='Monthly Churn Rate',
+                    marker_color='orange'
+                )
+            )
+            
+            # Add a line for average churn rate
+            avg_churn = monthly_sub_data['churn_rate'].mean() if not monthly_sub_data.empty else 0
+            if not pd.isna(avg_churn):  # Check if average is a valid number
+                churn_fig.add_trace(
+                    go.Scatter(
+                        x=monthly_sub_data['formatted_month'],
+                        y=[avg_churn] * len(monthly_sub_data),
+                        mode='lines',
+                        name=f'Average ({avg_churn:.1f}%)',
+                        line=dict(color='red', width=2, dash='dash')
+                    )
+                )
+            
+            churn_fig.update_layout(
+                title_text="Monthly Churn Rate",
+                xaxis_title="Month",
+                yaxis_title="Churn Rate (%)",
+                legend=dict(x=0, y=1.1, orientation='h'),
+                xaxis={'categoryorder': 'array', 'categoryarray': monthly_sub_data['formatted_month'].tolist()}
+            )
+            
+            # Trial vs recurring visualization
+            type_fig = go.Figure()
+            
+            type_fig.add_trace(
+                go.Scatter(x=sub_daily['date'], y=sub_daily['trial_count'], 
+                        mode='lines', name='Trial Subscriptions',
+                        line=dict(color='orange'))
+            )
+            
+            type_fig.add_trace(
+                go.Scatter(x=sub_daily['date'], y=sub_daily['recurring_count'], 
+                        mode='lines', name='Recurring Subscriptions',
+                        line=dict(color='blue'))
+            )
+            
+            type_fig.update_layout(
+                title_text="Trial vs Recurring Subscriptions",
+                xaxis_title="Date",
+                yaxis_title="Number of Subscriptions",
+                legend=dict(x=0, y=1.1, orientation='h')
+            )
+            
+            # Site comparison for subscriptions
+            if selected_sites and len(selected_sites) > 1:
+                # Group by site and date
+                site_sub_daily = filtered_sub_df.groupby(['site_id', filtered_sub_df['date'].dt.date]).agg({
+                    'active_count': 'sum',
+                    'created_count': 'sum',
+                    'canceled_count': 'sum'
+                }).reset_index()
+                
+                # Convert back to datetime
+                site_sub_daily['date'] = pd.to_datetime(site_sub_daily['date'])
+                
+                # Sort
+                site_sub_daily = site_sub_daily.sort_values(['site_id', 'date'])
+                
+                site_sub_fig = px.line(site_sub_daily, x='date', y='active_count', color='site_id',
+                                    title='Active Subscriptions by Site',
+                                    labels={'active_count': 'Active Subscriptions', 'date': 'Date', 'site_id': 'Site'})
+        
         # Display in tabs
         with tab1:
             st.header("Key Statistics")
@@ -291,6 +594,53 @@ try:
                 st.plotly_chart(wash_fig, use_container_width=True)
             else:
                 st.info("Wash type data is not available.")
+        
+        with tab4:
+            st.header("Subscription Analysis")
+            
+            if not filtered_sub_df.empty:
+                # Key subscription metrics
+                st.subheader("Key Subscription Metrics")
+                sub_col1, sub_col2, sub_col3, sub_col4 = st.columns(4)
+                
+                with sub_col1:
+                    st.metric("Active Subscriptions", f"{total_active:,}")
+                
+                with sub_col2:
+                    st.metric("New Subscriptions", f"{total_created:,}")
+                
+                with sub_col3:
+                    st.metric("Canceled Subscriptions", f"{total_canceled:,}")
+                
+                with sub_col4:
+                    # Convert numpy.int64 to Python int for delta parameter
+                    st.metric("Net Change", f"{net_change:+,}", delta=int(net_change))
+                
+                # Subscription charts
+                st.plotly_chart(active_fig, use_container_width=True)
+                
+                # Daily subscriptions created
+                st.subheader("Daily Subscription Activity")
+                st.plotly_chart(daily_created_fig, use_container_width=True)
+                
+                # Monthly subscription metrics
+                st.subheader("Monthly Subscription Trends")
+                st.plotly_chart(monthly_sub_fig, use_container_width=True)
+                
+                # Churn rate visualization
+                st.subheader("Membership Churn Analysis")
+                st.plotly_chart(churn_fig, use_container_width=True)
+                
+                # Trial vs recurring
+                st.subheader("Subscription Types")
+                st.plotly_chart(type_fig, use_container_width=True)
+                
+                # Site comparison
+                if selected_sites and len(selected_sites) > 1:
+                    st.header("Subscription Comparison by Site")
+                    st.plotly_chart(site_sub_fig, use_container_width=True)
+            else:
+                st.info("No subscription data available for the selected filters. Please adjust your selection.")
 
 except Exception as e:
     st.error(f"An error occurred: {e}")
