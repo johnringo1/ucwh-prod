@@ -5,13 +5,21 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from utils.db_utils import load_wash_data
+import os
 
 # Password protection function
 def check_password():
     """Returns `True` if the user had the correct password."""
     def password_entered():
         """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets.get("DASHBOARD_PASSWORD", "UCWashDashboard2025"):
+        # Get the password from secrets or use the default for local development
+        try:
+            dashboard_password = st.secrets.get("DASHBOARD_PASSWORD", "UCWashDashboard2025")
+        except:
+            # If running locally without secrets.toml, use default password
+            dashboard_password = "UCWashDashboard2025"
+            
+        if st.session_state["password"] == dashboard_password:
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # Don't store the password
         else:
@@ -32,14 +40,6 @@ def check_password():
             st.error("😕 Password incorrect")
     return False
 
-# Check password before proceeding
-if not check_password():
-    st.stop()  # Stop execution if password is incorrect
-
-# Page configuration - only runs if password is correct
-st.set_page_config(page_title="United Car Wash Analytics", layout="wide")
-st.title("United Car Wash Time Series Analysis")
-
 # Custom function to format year-month as "MMM 'YY"
 def format_year_month(year_month_str):
     """Convert 'YYYY-MM' to 'MMM 'YY' format (e.g., 'Jan '23')"""
@@ -48,6 +48,17 @@ def format_year_month(year_month_str):
         return date.strftime("%b '%y")  # Format as "Mar '25"
     except:
         return year_month_str
+
+# Check password before proceeding
+if not check_password():
+    st.stop()  # Stop execution if password is incorrect
+
+# Page configuration - only runs if password is correct
+st.set_page_config(page_title="United Car Wash Analytics", layout="wide")
+st.title("United Car Wash Time Series Analysis")
+
+# Create tabs for better organization
+tab1, tab2, tab3 = st.tabs(["Overview", "Site Analysis", "Wash Types"])
 
 # Add a try/except block to handle database connection issues gracefully
 try:
@@ -110,22 +121,7 @@ try:
         total_combined = total_washes + total_rewashes
         rewash_pct = total_rewashes / total_washes * 100 if total_washes > 0 else 0
         
-        # Statistics section at top for reference
-        st.header("Key Statistics")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Total Washes", f"{total_washes:,}")
-            
-        with col2:
-            st.metric("Total Rewashes", f"{total_rewashes:,}")
-            
-        with col3:
-            st.metric("Rewash Percentage", f"{rewash_pct:.2f}%")
-        
-        # Time Series Analysis
-        st.header("Time Series Analysis")
-        
+        # Time Series data preparation
         # Aggregate by date first - THIS MUST MATCH THE TOTALS ABOVE
         daily_totals = filtered_df.groupby(filtered_df['date'].dt.date).agg({
             'count': 'sum',
@@ -147,7 +143,7 @@ try:
         # Calculate rolling averages
         daily_totals[f'{rolling_window}d_avg'] = daily_totals['count'].rolling(rolling_window).mean()
         
-        # Create main visualization - REMOVED REWASH COUNT
+        # Create main visualization
         fig = go.Figure()
         
         fig.add_trace(
@@ -168,12 +164,8 @@ try:
             legend=dict(x=0, y=1.1, orientation='h')
         )
         
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Site comparison
+        # Site comparison preparation
         if selected_sites and len(selected_sites) > 1:
-            st.header("Site Comparison")
-            
             # Group by site and date, matching the same logic as above
             site_daily = filtered_df.groupby(['site_id', filtered_df['date'].dt.date]).agg({
                 'count': 'sum',
@@ -190,12 +182,9 @@ try:
             site_fig = px.line(site_daily, x='date', y='count', color='site_id',
                             title='Daily Wash Counts by Site',
                             labels={'count': 'Wash Count', 'date': 'Date', 'site_id': 'Site'})
-            
-            st.plotly_chart(site_fig, use_container_width=True)
         
-        # Show wash type breakdown
+        # Wash type breakdown preparation
         if 'name' in filtered_df.columns:
-            st.header("Wash Type Analysis")
             wash_types = filtered_df.groupby('name').agg({
                 'count': 'sum',
                 'rewash_count': 'sum'
@@ -209,12 +198,8 @@ try:
                             title='Wash Counts by Type',
                             labels={'name': 'Wash Type', 'count': 'Wash Count'})
             
-            st.plotly_chart(wash_fig, use_container_width=True)
-            
             # Add wash type by site if multiple sites are selected
             if selected_sites and len(selected_sites) > 1:
-                st.header("Wash Types by Site")
-                
                 site_type_data = filtered_df.groupby(['site_id', 'name']).agg({
                     'count': 'sum'  # Removed rewash_count
                 }).reset_index()
@@ -223,13 +208,8 @@ try:
                                     color='name', 
                                     title='Wash Types Distribution by Site',
                                     labels={'count': 'Wash Count', 'site_id': 'Site', 'name': 'Wash Type'})
-                
-                st.plotly_chart(site_type_fig, use_container_width=True)
         
-        # Add time-based analysis (day of week patterns)
-        st.header("Temporal Analysis")
-        
-        # Extract day of week from date
+        # Day of week analysis preparation
         if 'date' in filtered_df.columns:
             filtered_df['day_of_week'] = filtered_df['date'].dt.day_name()
             
@@ -247,11 +227,7 @@ try:
                            title='Wash Distribution by Day of Week',
                            labels={'day_of_week': 'Day of Week', 'count': 'Wash Count'})
             
-            st.plotly_chart(dow_fig, use_container_width=True)
-
             # Month over month analysis
-            st.header("Month over Month Analysis")
-            
             # Extract year and month and store both raw and formatted versions
             filtered_df['year_month'] = filtered_df['date'].dt.strftime('%Y-%m')
             
@@ -275,8 +251,46 @@ try:
             mom_fig.update_layout(
                 xaxis={'categoryorder': 'array', 'categoryarray': monthly_data['formatted_month'].tolist()}
             )
+        
+        # Display in tabs
+        with tab1:
+            st.header("Key Statistics")
+            col1, col2, col3 = st.columns(3)
             
+            with col1:
+                st.metric("Total Washes", f"{total_washes:,}")
+                
+            with col2:
+                st.metric("Total Rewashes", f"{total_rewashes:,}")
+                
+            with col3:
+                st.metric("Rewash Percentage", f"{rewash_pct:.2f}%")
+            
+            st.header("Time Series Analysis")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Temporal Analysis
+            st.header("Temporal Analysis")
+            st.plotly_chart(dow_fig, use_container_width=True)
             st.plotly_chart(mom_fig, use_container_width=True)
+        
+        with tab2:
+            st.header("Site Comparison")
+            if selected_sites and len(selected_sites) > 1:
+                st.plotly_chart(site_fig, use_container_width=True)
+                
+                if 'name' in filtered_df.columns and 'site_type_fig' in locals():
+                    st.header("Wash Types by Site")
+                    st.plotly_chart(site_type_fig, use_container_width=True)
+            else:
+                st.info("Please select multiple sites in the sidebar to enable site comparison.")
+        
+        with tab3:
+            if 'name' in filtered_df.columns:
+                st.header("Wash Type Analysis")
+                st.plotly_chart(wash_fig, use_container_width=True)
+            else:
+                st.info("Wash type data is not available.")
 
 except Exception as e:
     st.error(f"An error occurred: {e}")
