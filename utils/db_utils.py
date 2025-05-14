@@ -1,4 +1,4 @@
-#import pandas as pd
+import pandas as pd
 import os
 import pyodbc
 import streamlit as st
@@ -11,12 +11,23 @@ def load_wash_data():
         database = st.secrets.get("DB_NAME")
         username = st.secrets.get("DB_USER")
         password = st.secrets.get("DB_PASSWORD")
+        
+        # This is likely where the error is occurring - 
+        # You're checking values inside the try block but there's no except block
+        # Fix: Remove this condition or move it after the except block
+        # if not all([server, database, username, password]):
+        #    # Do something
     except:
         # Default values for local development
         server = "ucw.database.windows.net"
         database = "UnitedCarwashProduction"
         username = "ucwreader"
         password = "mBSzLC4frVCJglpmSbbg"
+
+    # Now you can safely check if all credentials are available
+    if not all([server, database, username, password]):
+        st.error("Database connection parameters are not properly configured.")
+        return pd.DataFrame()  # Return empty DataFrame
 
     # Build connection string for Azure SQL with ODBC 17 or 18 (whichever is available)
     try:
@@ -32,16 +43,20 @@ def load_wash_data():
         conn = pyodbc.connect(connection_string)
     except:
         # Try with ODBC 17 if 18 is not available
-        connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={server};"
-            f"DATABASE={database};"
-            f"UID={username};"
-            f"PWD={password};"
-            f"TrustServerCertificate=yes;"
-            f"Encrypt=yes;"
-        )
-        conn = pyodbc.connect(connection_string)
+        try:
+            connection_string = (
+                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"UID={username};"
+                f"PWD={password};"
+                f"TrustServerCertificate=yes;"
+                f"Encrypt=yes;"
+            )
+            conn = pyodbc.connect(connection_string)
+        except Exception as e:
+            st.error(f"Failed to connect to database: {e}")
+            return pd.DataFrame()  # Return empty DataFrame
     
     # SQL query
     query = """
@@ -58,17 +73,21 @@ def load_wash_data():
     """
     
     # Execute query and load into pandas DataFrame
-    df = pd.read_sql(query, conn)
-    
-    # Close connection
-    conn.close()
-    
-    # Process data
-    df['date'] = pd.to_datetime(df['date'])
-    df['total_count'] = df['count'] + df['rewash_count']
-    df['rewash_percentage'] = (df['rewash_count'] * 100 / df['count']).fillna(0)
-    
-    return df
+    try:
+        df = pd.read_sql(query, conn)
+        
+        # Close connection
+        conn.close()
+        
+        # Process data
+        df['date'] = pd.to_datetime(df['date'])
+        df['total_count'] = df['count'] + df['rewash_count']
+        df['rewash_percentage'] = (df['rewash_count'] * 100 / df['count']).fillna(0)
+        
+        return df
+    except Exception as e:
+        st.error(f"Error loading wash data: {e}")
+        return pd.DataFrame()  # Return empty DataFrame
 
 def load_subscription_data():
     """Load subscription data from database"""
@@ -85,6 +104,11 @@ def load_subscription_data():
         username = "ucwreader"
         password = "mBSzLC4frVCJglpmSbbg"
     
+    # Check if credentials are valid
+    if not all([server, database, username, password]):
+        st.error("Database connection parameters are not properly configured.")
+        return pd.DataFrame()  # Return empty DataFrame
+    
     # Build connection string for Azure SQL with ODBC 17 or 18 (whichever is available)
     try:
         connection_string = (
@@ -99,16 +123,20 @@ def load_subscription_data():
         conn = pyodbc.connect(connection_string)
     except:
         # Try with ODBC 17 if 18 is not available
-        connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={server};"
-            f"DATABASE={database};"
-            f"UID={username};"
-            f"PWD={password};"
-            f"TrustServerCertificate=yes;"
-            f"Encrypt=yes;"
-        )
-        conn = pyodbc.connect(connection_string)
+        try:
+            connection_string = (
+                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"UID={username};"
+                f"PWD={password};"
+                f"TrustServerCertificate=yes;"
+                f"Encrypt=yes;"
+            )
+            conn = pyodbc.connect(connection_string)
+        except Exception as e:
+            st.error(f"Failed to connect to database: {e}")
+            return pd.DataFrame()  # Return empty DataFrame
     
     # SQL query for subscription data
     query = """
@@ -128,21 +156,25 @@ def load_subscription_data():
     """
     
     # Execute query and load into pandas DataFrame
-    df = pd.read_sql(query, conn)
-    
-    # Close connection
-    conn.close()
-    
-    # Process data
-    df['date'] = pd.to_datetime(df['date'])
-    
-    # Calculate net change
-    df['net_change'] = df['created_count'] - df['canceled_count']
-    
-    # Calculate conversion rate (from trial to recurring)
-    df['conversion_rate'] = (df['recurring_count'] / df['trial_count'] * 100).fillna(0)
-    
-    return df
+    try:
+        df = pd.read_sql(query, conn)
+        
+        # Close connection
+        conn.close()
+        
+        # Process data
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # Calculate net change
+        df['net_change'] = df['created_count'] - df['canceled_count']
+        
+        # Calculate conversion rate (from trial to recurring)
+        df['conversion_rate'] = (df['recurring_count'] / df['trial_count'] * 100).fillna(0)
+        
+        return df
+    except Exception as e:
+        st.error(f"Error loading subscription data: {e}")
+        return pd.DataFrame()  # Return empty DataFrame
 
 def load_sales_data():
     """Load sales and expense data from database"""
@@ -159,6 +191,11 @@ def load_sales_data():
         username = "ucwreader"
         password = "mBSzLC4frVCJglpmSbbg"
     
+    # Check if credentials are valid
+    if not all([server, database, username, password]):
+        st.error("Database connection parameters are not properly configured.")
+        return pd.DataFrame()  # Return empty DataFrame
+    
     # Build connection string for Azure SQL with ODBC 17 or 18 (whichever is available)
     try:
         connection_string = (
@@ -173,18 +210,22 @@ def load_sales_data():
         conn = pyodbc.connect(connection_string)
     except:
         # Try with ODBC 17 if 18 is not available
-        connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={server};"
-            f"DATABASE={database};"
-            f"UID={username};"
-            f"PWD={password};"
-            f"TrustServerCertificate=yes;"
-            f"Encrypt=yes;"
-        )
-        conn = pyodbc.connect(connection_string)
+        try:
+            connection_string = (
+                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"UID={username};"
+                f"PWD={password};"
+                f"TrustServerCertificate=yes;"
+                f"Encrypt=yes;"
+            )
+            conn = pyodbc.connect(connection_string)
+        except Exception as e:
+            st.error(f"Failed to connect to database: {e}")
+            return pd.DataFrame()  # Return empty DataFrame
     
-    # SQL query for sales and expense data - Modify query to convert date_key directly in SQL
+    # SQL query for sales and expense data
     query = """
     SELECT 
         site_id,
@@ -268,15 +309,19 @@ def load_sales_data():
     """
     
     # Execute query and load into pandas DataFrame
-    df = pd.read_sql(query, conn)
-    
-    # Close connection
-    conn.close()
-    
-    # Process data - use pandas to_datetime to safely convert the date column
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
-    
-    # Drop rows with invalid dates
-    df = df.dropna(subset=['date'])
-    
-    return df
+    try:
+        df = pd.read_sql(query, conn)
+        
+        # Close connection
+        conn.close()
+        
+        # Process data - use pandas to_datetime to safely convert the date column
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        
+        # Drop rows with invalid dates
+        df = df.dropna(subset=['date'])
+        
+        return df
+    except Exception as e:
+        st.error(f"Error loading sales data: {e}")
+        return pd.DataFrame()  # Return empty DataFrame
