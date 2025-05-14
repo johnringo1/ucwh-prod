@@ -5,26 +5,18 @@ import streamlit as st
 
 def load_wash_data():
     """Load wash data from database"""
-    # Get credentials from Streamlit secrets or use default values
+    # Get credentials from Streamlit secrets
     try:
         server = st.secrets.get("DB_SERVER")
         database = st.secrets.get("DB_NAME")
         username = st.secrets.get("DB_USER")
         password = st.secrets.get("DB_PASSWORD")
-        
-        # This is likely where the error is occurring - 
-        # You're checking values inside the try block but there's no except block
-        # Fix: Remove this condition or move it after the except block
-        # if not all([server, database, username, password]):
-        #    # Do something
-    except:
-        # Default values for local development
-        server = "ucw.database.windows.net"
-        database = "UnitedCarwashProduction"
-        username = "ucwreader"
-        password = "mBSzLC4frVCJglpmSbbg"
-
-    # Now you can safely check if all credentials are available
+    except Exception as e:
+        # Just log the error without exposing any credentials
+        st.error("Error loading database credentials. Please configure in Streamlit secrets.")
+        return pd.DataFrame()  # Return empty DataFrame
+    
+    # Now safely check if all credentials are available
     if not all([server, database, username, password]):
         st.error("Database connection parameters are not properly configured.")
         return pd.DataFrame()  # Return empty DataFrame
@@ -91,18 +83,16 @@ def load_wash_data():
 
 def load_subscription_data():
     """Load subscription data from database"""
-    # Get credentials from Streamlit secrets or use default values
+    # Get credentials from Streamlit secrets
     try:
         server = st.secrets.get("DB_SERVER")
         database = st.secrets.get("DB_NAME")
         username = st.secrets.get("DB_USER")
         password = st.secrets.get("DB_PASSWORD")
-    except:
-        # Default values for local development
-        server = "ucw.database.windows.net"
-        database = "UnitedCarwashProduction"
-        username = "ucwreader"
-        password = "mBSzLC4frVCJglpmSbbg"
+    except Exception as e:
+        # Just log the error without exposing any credentials
+        st.error("Error loading database credentials. Please configure in Streamlit secrets.")
+        return pd.DataFrame()  # Return empty DataFrame
     
     # Check if credentials are valid
     if not all([server, database, username, password]):
@@ -178,18 +168,16 @@ def load_subscription_data():
 
 def load_sales_data():
     """Load sales and expense data from database"""
-    # Get credentials from Streamlit secrets or use default values
+    # Get credentials from Streamlit secrets
     try:
         server = st.secrets.get("DB_SERVER")
         database = st.secrets.get("DB_NAME")
         username = st.secrets.get("DB_USER")
         password = st.secrets.get("DB_PASSWORD")
-    except:
-        # Default values for local development
-        server = "ucw.database.windows.net"
-        database = "UnitedCarwashProduction"
-        username = "ucwreader"
-        password = "mBSzLC4frVCJglpmSbbg"
+    except Exception as e:
+        # Just log the error without exposing any credentials
+        st.error("Error loading database credentials. Please configure in Streamlit secrets.")
+        return pd.DataFrame()  # Return empty DataFrame
     
     # Check if credentials are valid
     if not all([server, database, username, password]):
