@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from utils.db_utils import load_wash_data, load_subscription_data
+from utils.db_utils import load_wash_data, load_subscription_data, load_sales_data  
 import os
 
 # Password protection function
@@ -58,7 +58,7 @@ st.set_page_config(page_title="United Car Wash Analytics", layout="wide")
 st.title("United Car Wash Time Series Analysis")
 
 # Create tabs for better organization
-tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Site Analysis", "Wash Types", "Subscriptions"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Site Analysis", "Wash Types", "Subscriptions", "Sales Analysis"])
 
 # Add a try/except block to handle database connection issues gracefully
 try:
@@ -69,18 +69,26 @@ try:
         # Load subscription data
         with st.spinner("Loading subscription data..."):
             sub_df = load_subscription_data()
+
+        # Load sales data
+        with st.spinner("Loading sales data from database..."):
+            sales_df = load_sales_data()
     
     # Calculate date range
     min_date = df['date'].min().date()  # Convert to Python date for the date picker
     max_date = df['date'].max().date()  # Convert to Python date for the date picker
+
+    # Calculate sales date range
+    sales_min_date = sales_df['date'].min().date() if not sales_df.empty else min_date
+    sales_max_date = sales_df['date'].max().date() if not sales_df.empty else max_date
     
     # Calculate subscription date range
     sub_min_date = sub_df['date'].min().date() if not sub_df.empty else min_date
     sub_max_date = sub_df['date'].max().date() if not sub_df.empty else max_date
     
     # Use the overall min and max dates for consistency
-    overall_min_date = min(min_date, sub_min_date)
-    overall_max_date = max(max_date, sub_max_date)
+    overall_min_date = min(min_date, sub_min_date, sales_min_date)
+    overall_max_date = max(max_date, sub_max_date, sales_max_date)
     
     # Create sidebar for filters
     st.sidebar.header("Filters")
@@ -99,11 +107,7 @@ try:
         start_date = date_range[0]
         end_date = overall_max_date
     
-    # Filter data - IMPORTANT: Convert the date objects back to strings for filtering
-    start_date_str = start_date.strftime('%Y-%m-%d')
-    end_date_str = end_date.strftime('%Y-%m-%d')
-    
-    # Site selector
+    # Site selector - MOVED UP BEFORE ANY USAGE
     all_sites = sorted(df['site_id'].unique())
     selected_sites = st.sidebar.multiselect(
         "Select Sites",
@@ -114,6 +118,10 @@ try:
     # Rolling average period
     rolling_window = st.sidebar.slider("Rolling Average Window (days)", 1, 60, 7)
     
+    # Filter data - IMPORTANT: Convert the date objects back to strings for filtering
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
+
     # Filter data using string comparison to avoid type issues
     if selected_sites:
         filtered_df = df[(df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
@@ -122,15 +130,24 @@ try:
         
         # Filter subscription data similarly
         filtered_sub_df = sub_df[(sub_df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
-                              (sub_df['date'].dt.strftime('%Y-%m-%d') <= end_date_str) & 
-                              (sub_df['site_id'].isin(selected_sites))]
+                            (sub_df['date'].dt.strftime('%Y-%m-%d') <= end_date_str) & 
+                            (sub_df['site_id'].isin(selected_sites))]
+                            
+        # Filter sales data
+        filtered_sales_df = sales_df[(sales_df['date'] >= pd.to_datetime(start_date)) & 
+                            (sales_df['date'] <= pd.to_datetime(end_date)) & 
+                            (sales_df['site_id'].isin(selected_sites))]
     else:
         filtered_df = df[(df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
                         (df['date'].dt.strftime('%Y-%m-%d') <= end_date_str)]
         
         # Filter subscription data similarly
         filtered_sub_df = sub_df[(sub_df['date'].dt.strftime('%Y-%m-%d') >= start_date_str) & 
-                              (sub_df['date'].dt.strftime('%Y-%m-%d') <= end_date_str)]
+                            (sub_df['date'].dt.strftime('%Y-%m-%d') <= end_date_str)]
+                            
+        # Filter sales data
+        filtered_sales_df = sales_df[(sales_df['date'] >= pd.to_datetime(start_date)) & 
+                            (sales_df['date'] <= pd.to_datetime(end_date))]
     
     # Add data export feature in sidebar
     st.sidebar.markdown("---")
@@ -199,8 +216,20 @@ try:
                 key="download-monthly-csv",
                 help="Export monthly aggregated data by site"
             )
-    
-    # Check if data exists after filtering
+        
+        # Sales data export
+        if not filtered_sales_df.empty:
+            csv_sales = filtered_sales_df.to_csv(index=False)
+            st.download_button(
+                "Download Sales Data (CSV)",
+                csv_sales,
+                f"ucw_sales_data_{start_date_str}_to_{end_date_str}.csv",
+                "text/csv",
+                key="download-sales-csv",
+                help="Export the sales data to a CSV file"
+            )
+
+        # Check if data exists after filtering
     if filtered_df.empty:
         st.warning("No wash data available for the selected filters. Please adjust your selection.")
     else:
@@ -595,6 +624,7 @@ try:
             else:
                 st.info("Wash type data is not available.")
         
+        # Tab 4 - Subscriptions tab content
         with tab4:
             st.header("Subscription Analysis")
             
@@ -641,6 +671,857 @@ try:
                     st.plotly_chart(site_sub_fig, use_container_width=True)
             else:
                 st.info("No subscription data available for the selected filters. Please adjust your selection.")
+
+        # Tab 5 - Sales Analysis tab content - ADD THIS RIGHT AFTER TAB 4
+        with tab5:
+            st.header("Sales Analysis")
+            
+            if not filtered_sales_df.empty:
+                # Calculate key metrics
+                total_revenue = filtered_sales_df['revenue'].sum()
+                total_expenses = filtered_sales_df['expense_total'].sum()
+                net_income = total_revenue - total_expenses
+                total_cash_sales = filtered_sales_df['cash_sales'].sum()
+                total_credit_card_sales = filtered_sales_df['credit_card_sales'].sum()
+                total_club_ppw_sales = filtered_sales_df['club_and_ppw_sales'].sum()
+                
+                # Display key metrics
+                st.subheader("Key Financial Metrics")
+                fin_col1, fin_col2, fin_col3 = st.columns(3)
+                
+                with fin_col1:
+                    st.metric("Total Revenue", f"${total_revenue:,.2f}")
+                
+                with fin_col2:
+                    st.metric("Total Expenses", f"${total_expenses:,.2f}")
+                
+                with fin_col3:
+                    st.metric("Net Income", f"${net_income:,.2f}", 
+                            delta=f"${net_income:,.2f}" if net_income > 0 else f"-${abs(net_income):,.2f}")
+                
+                # Sales breakdown
+                st.subheader("Sales Breakdown")
+                sales_col1, sales_col2, sales_col3 = st.columns(3)
+                
+                with sales_col1:
+                    st.metric("Cash Sales", f"${total_cash_sales:,.2f}")
+                
+                with sales_col2:
+                    st.metric("Credit Card Sales", f"${total_credit_card_sales:,.2f}")
+                
+                with sales_col3:
+                    st.metric("Club & PPW Sales", f"${total_club_ppw_sales:,.2f}")
+                
+                # Create time series data for revenue
+                daily_revenue = filtered_sales_df.groupby(filtered_sales_df['date'].dt.date).agg({
+                    'revenue': 'sum',
+                    'expense_total': 'sum',
+                    'cash_sales': 'sum',
+                    'credit_card_sales': 'sum',
+                    'club_and_ppw_sales': 'sum'
+                }).reset_index()
+                
+                # Convert back to datetime for plotting
+                daily_revenue['date'] = pd.to_datetime(daily_revenue['date'])
+                
+                # Sort by date
+                daily_revenue = daily_revenue.sort_values('date')
+                
+                # Calculate rolling averages
+                daily_revenue[f'{rolling_window}d_revenue_avg'] = daily_revenue['revenue'].rolling(rolling_window).mean()
+                
+                # Create revenue over time visualization
+                revenue_fig = go.Figure()
+                
+                revenue_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['revenue'], 
+                            mode='lines', name='Daily Revenue')
+                )
+                
+                revenue_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue[f'{rolling_window}d_revenue_avg'], 
+                            mode='lines', name=f'{rolling_window}-Day Rolling Avg',
+                            line=dict(color='red'))
+                )
+                
+                revenue_fig.update_layout(
+                    title_text="Revenue Over Time",
+                    xaxis_title="Date",
+                    yaxis_title="Revenue ($)",
+                    legend=dict(x=0, y=1.1, orientation='h')
+                )
+                
+                st.plotly_chart(revenue_fig, use_container_width=True)
+                
+                # Revenue vs Expenses
+                rev_exp_fig = go.Figure()
+                
+                rev_exp_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['revenue'], 
+                            mode='lines', name='Revenue',
+                            line=dict(color='green'))
+                )
+                
+                rev_exp_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['expense_total'], 
+                            mode='lines', name='Expenses',
+                            line=dict(color='red'))
+                )
+                
+                # Add net income
+                daily_revenue['net_income'] = daily_revenue['revenue'] - daily_revenue['expense_total']
+                
+                rev_exp_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['net_income'], 
+                            mode='lines', name='Net Income',
+                            line=dict(color='blue'))
+                )
+                
+                rev_exp_fig.update_layout(
+                    title_text="Revenue vs Expenses Over Time",
+                    xaxis_title="Date",
+                    yaxis_title="Amount ($)",
+                    legend=dict(x=0, y=1.1, orientation='h')
+                )
+                
+                st.plotly_chart(rev_exp_fig, use_container_width=True)
+                
+                # Sales breakdown chart
+                sales_breakdown_fig = go.Figure()
+                
+                sales_breakdown_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['cash_sales'], 
+                            mode='lines', name='Cash Sales',
+                            line=dict(color='green'))
+                )
+                
+                sales_breakdown_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['credit_card_sales'], 
+                            mode='lines', name='Credit Card Sales',
+                            line=dict(color='blue'))
+                )
+                
+                sales_breakdown_fig.add_trace(
+                    go.Scatter(x=daily_revenue['date'], y=daily_revenue['club_and_ppw_sales'], 
+                            mode='lines', name='Club & PPW Sales',
+                            line=dict(color='purple'))
+                )
+                
+                sales_breakdown_fig.update_layout(
+                    title_text="Sales Breakdown Over Time",
+                    xaxis_title="Date",
+                    yaxis_title="Sales ($)",
+                    legend=dict(x=0, y=1.1, orientation='h')
+                )
+                
+                st.plotly_chart(sales_breakdown_fig, use_container_width=True)
+                
+                # Monthly analysis
+                filtered_sales_df['year_month'] = filtered_sales_df['date'].dt.strftime('%Y-%m')
+                
+                # Group by year-month
+                monthly_sales = filtered_sales_df.groupby('year_month').agg({
+                    'revenue': 'sum',
+                    'expense_total': 'sum',
+                    'cash_sales': 'sum',
+                    'credit_card_sales': 'sum',
+                    'club_and_ppw_sales': 'sum'
+                }).reset_index()
+                
+                # Calculate net income
+                monthly_sales['net_income'] = monthly_sales['revenue'] - monthly_sales['expense_total']
+                
+                # Sort chronologically
+                monthly_sales = monthly_sales.sort_values('year_month')
+                
+                # Add formatted month column for display
+                monthly_sales['formatted_month'] = monthly_sales['year_month'].apply(format_year_month)
+                
+                # Create monthly revenue chart
+                monthly_fig = go.Figure()
+                
+                monthly_fig.add_trace(
+                    go.Bar(
+                        x=monthly_sales['formatted_month'],
+                        y=monthly_sales['revenue'],
+                        name='Revenue',
+                        marker_color='green'
+                    )
+                )
+                
+                monthly_fig.add_trace(
+                    go.Bar(
+                        x=monthly_sales['formatted_month'],
+                        y=monthly_sales['expense_total'],
+                        name='Expenses',
+                        marker_color='red'
+                    )
+                )
+                
+                monthly_fig.add_trace(
+                    go.Scatter(
+                        x=monthly_sales['formatted_month'],
+                        y=monthly_sales['net_income'],
+                        mode='lines+markers',
+                        name='Net Income',
+                        line=dict(color='blue', width=3)
+                    )
+                )
+                
+                monthly_fig.update_layout(
+                    title_text="Monthly Revenue and Expenses",
+                    xaxis_title="Month",
+                    yaxis_title="Amount ($)",
+                    barmode='group',
+                    legend=dict(x=0, y=1.1, orientation='h'),
+                    xaxis={'categoryorder': 'array', 'categoryarray': monthly_sales['formatted_month'].tolist()}
+                )
+                
+                st.plotly_chart(monthly_fig, use_container_width=True)
+                
+                # Monthly sales breakdown
+                st.subheader("Monthly Sales Breakdown")
+                
+                # Create stacked bar chart for types of sales
+                monthly_breakdown_fig = px.bar(monthly_sales, 
+                                            x='formatted_month', 
+                                            y=['cash_sales', 'credit_card_sales', 'club_and_ppw_sales'],
+                                            title='Monthly Sales by Type',
+                                            labels={'value': 'Sales ($)', 'formatted_month': 'Month', 'variable': 'Sales Type'},
+                                            barmode='stack')
+                
+                # Update names for legend
+                monthly_breakdown_fig.update_layout(
+                    xaxis={'categoryorder': 'array', 'categoryarray': monthly_sales['formatted_month'].tolist()},
+                    legend_title_text='Sales Type',
+                    legend=dict(
+                        yanchor="top",
+                        y=0.99,
+                        xanchor="left",
+                        x=0.01
+                    )
+                )
+                
+                # Rename series in legend
+                monthly_breakdown_fig.for_each_trace(lambda t: t.update(
+                    name=t.name.replace("_sales", "").replace("_", " ").title(),
+                    legendgroup=t.name.replace("_sales", "").replace("_", " ").title(),
+                    hovertemplate=t.hovertemplate.replace("_sales", "").replace("_", " ").title()
+                ))
+                
+                st.plotly_chart(monthly_breakdown_fig, use_container_width=True)
+                
+                # Expense breakdown
+                st.subheader("Expense Analysis")
+                
+                # Get expense columns
+                expense_cols = [
+                    'wkly_sub_credit_card_fees', 'technology_fee', 'brand_development_fee', 
+                    'royalty_fee', 'fee_adjustments', 'radar_fee_amt', 'pre_auth_fee_amt',
+                    'volume_billing_fee_amt', 'payout_fee_amt', 'auto_card_update_fee_amt',
+                    'active_account_billing_fee_amt', 'active_reader_fee_amt', 'app_adjustment'
+                ]
+                
+                # Sum up expenses
+                expense_total = filtered_sales_df[expense_cols].sum().reset_index()
+                expense_total.columns = ['expense_type', 'amount']
+                
+                # Remove expenses that are zero
+                expense_total = expense_total[expense_total['amount'] > 0]
+                
+                # Sort by amount
+                expense_total = expense_total.sort_values('amount', ascending=False)
+                
+                # Create expense breakdown chart if data exists
+                if not expense_total.empty:
+                    expense_pie = px.pie(
+                        expense_total, 
+                        values='amount', 
+                        names='expense_type',
+                        title='Expense Breakdown',
+                        hole=0.4,
+                    )
+                    
+                    # Improve expense type labels
+                    expense_pie.update_traces(
+                        textinfo='percent+label',
+                        texttemplate='%{label}: $%{value:,.2f}<br>(%{percent})',
+                        hovertemplate='%{label}<br>$%{value:,.2f}<br>%{percent}'
+                    )
+                    
+                    st.plotly_chart(expense_pie, use_container_width=True)
+                else:
+                    st.info("No expense data available for the selected period.")
+                
+                # PPW vs Club Wash Count Comparison
+                st.subheader("PPW vs Club Wash Count Comparison")
+                
+                # Calculate revenue totals first (to avoid the "not defined" error)
+                # Calculate PPW revenue
+                total_ppw_quality = filtered_sales_df['gross_ppw_payments_quality'].sum() - filtered_sales_df['gross_ppw_refunds_quality'].sum()
+                total_ppw_works = filtered_sales_df['gross_ppw_payments_works'].sum() - filtered_sales_df['gross_ppw_refunds_works'].sum()
+                total_ppw_ultimate = filtered_sales_df['gross_ppw_payments_ultimate'].sum() - filtered_sales_df['gross_ppw_refunds_ultimate'].sum()
+                total_ppw_super = filtered_sales_df['gross_ppw_payments_super'].sum() - filtered_sales_df['gross_ppw_refunds_super'].sum()
+                
+                # Calculate total PPW revenue
+                total_ppw_revenue = total_ppw_quality + total_ppw_works + total_ppw_ultimate + total_ppw_super
+                
+                # Calculate Club revenue (if these columns exist)
+                try:
+                    total_club_quality = filtered_sales_df['gross_club_payments_quality'].sum() - filtered_sales_df['gross_club_refunds_quality'].sum() if 'gross_club_payments_quality' in filtered_sales_df.columns else 0
+                    total_club_works = filtered_sales_df['gross_club_payments_works'].sum() - filtered_sales_df['gross_club_refunds_works'].sum() if 'gross_club_payments_works' in filtered_sales_df.columns else 0
+                    total_club_ultimate = filtered_sales_df['gross_club_payments_ultimate'].sum() - filtered_sales_df['gross_club_refunds_ultimate'].sum() if 'gross_club_payments_ultimate' in filtered_sales_df.columns else 0
+                    total_club_super = filtered_sales_df['gross_club_payments_super'].sum() - filtered_sales_df['gross_club_refunds_super'].sum() if 'gross_club_payments_super' in filtered_sales_df.columns else 0
+                    
+                    # Calculate total Club revenue
+                    total_club_revenue = total_club_quality + total_club_works + total_club_ultimate + total_club_super
+                except:
+                    # If the club revenue columns don't exist, estimate club revenue
+                    # by subtracting PPW revenue from total club_and_ppw_sales
+                    total_club_revenue = filtered_sales_df['club_and_ppw_sales'].sum() - total_ppw_revenue
+                    
+                # Calculate PPW vs Club wash counts
+                try:
+                    # Sum up PPW counts across all membership tiers
+                    total_ppw_count = (
+                        filtered_sales_df['ppw_quality_count'].sum() +
+                        filtered_sales_df['ppw_works_count'].sum() +
+                        filtered_sales_df['ppw_ultimate_count'].sum() +
+                        filtered_sales_df['ppw_super_count'].sum()
+                    )
+                    
+                    # Sum up Club counts across all membership tiers
+                    total_club_count = (
+                        filtered_sales_df['club_quality_count'].sum() +
+                        filtered_sales_df['club_works_count'].sum() +
+                        filtered_sales_df['club_ultimate_count'].sum() +
+                        filtered_sales_df['club_super_count'].sum()
+                    )
+                    
+                    # Create comparison dataframe
+                    wash_counts = pd.DataFrame({
+                        'program': ['Pay Per Wash (PPW)', 'Club Membership'],
+                        'wash_count': [total_ppw_count, total_club_count]
+                    })
+                    
+                    # Create charts only if we have wash count data
+                    if total_ppw_count > 0 or total_club_count > 0:
+                        # Create pie chart
+                        wash_count_pie = px.pie(
+                            wash_counts,
+                            values='wash_count',
+                            names='program',
+                            title='PPW vs Club Wash Count Distribution',
+                            hole=0.4,
+                            color_discrete_map={'Pay Per Wash (PPW)': 'royalblue', 'Club Membership': 'darkgreen'}
+                        )
+                        
+                        wash_count_pie.update_traces(
+                            textinfo='percent+label+value',
+                            texttemplate='%{label}<br>%{value:,} washes<br>(%{percent})',
+                            hovertemplate='%{label}<br>%{value:,} washes<br>(%{percent})'
+                        )
+                        
+                        st.plotly_chart(wash_count_pie, use_container_width=True)
+                        
+                        # Create detailed breakdown by wash type
+                        wash_types_data = pd.DataFrame({
+                            'wash_type': ['Quality', 'Works', 'Ultimate', 'Super'],
+                            'PPW': [
+                                filtered_sales_df['ppw_quality_count'].sum(),
+                                filtered_sales_df['ppw_works_count'].sum(),
+                                filtered_sales_df['ppw_ultimate_count'].sum(),
+                                filtered_sales_df['ppw_super_count'].sum()
+                            ],
+                            'Club': [
+                                filtered_sales_df['club_quality_count'].sum(),
+                                filtered_sales_df['club_works_count'].sum(),
+                                filtered_sales_df['club_ultimate_count'].sum(),
+                                filtered_sales_df['club_super_count'].sum()
+                            ]
+                        })
+                        
+                        # Remove rows where both PPW and Club are zero
+                        wash_types_data = wash_types_data[(wash_types_data['PPW'] > 0) | (wash_types_data['Club'] > 0)]
+                        
+                        if not wash_types_data.empty:
+                            # Create grouped bar chart
+                            wash_types_fig = px.bar(
+                                wash_types_data,
+                                x='wash_type',
+                                y=['PPW', 'Club'],
+                                title='PPW vs Club Wash Counts by Wash Type',
+                                labels={
+                                    'value': 'Number of Washes', 
+                                    'wash_type': 'Wash Type',
+                                    'variable': 'Program'
+                                },
+                                barmode='group',
+                                color_discrete_map={'PPW': 'royalblue', 'Club': 'darkgreen'},
+                                text_auto=True
+                            )
+                            
+                            st.plotly_chart(wash_types_fig, use_container_width=True)
+                            
+                            # Calculate and display average washes per revenue dollar
+                            if total_ppw_revenue > 0 and total_ppw_count > 0:
+                                ppw_efficiency = total_ppw_count / total_ppw_revenue
+                                st.metric("PPW Washes per Revenue Dollar", f"{ppw_efficiency:.4f}")
+                            
+                            if total_club_revenue > 0 and total_club_count > 0:
+                                club_efficiency = total_club_count / total_club_revenue
+                                st.metric("Club Washes per Revenue Dollar", f"{club_efficiency:.4f}")
+                        
+                        # Try to create time series of wash counts if possible
+                        try:
+                            # Group by date to get daily wash counts
+                            daily_wash_counts = filtered_sales_df.groupby(filtered_sales_df['date'].dt.date).agg({
+                                'date': 'first',
+                                'ppw_quality_count': 'sum',
+                                'ppw_works_count': 'sum',
+                                'ppw_ultimate_count': 'sum',
+                                'ppw_super_count': 'sum',
+                                'club_quality_count': 'sum',
+                                'club_works_count': 'sum',
+                                'club_ultimate_count': 'sum',
+                                'club_super_count': 'sum'
+                            }).reset_index(drop=True)
+                            
+                            # Calculate totals
+                            daily_wash_counts['ppw_total'] = (
+                                daily_wash_counts['ppw_quality_count'] +
+                                daily_wash_counts['ppw_works_count'] +
+                                daily_wash_counts['ppw_ultimate_count'] +
+                                daily_wash_counts['ppw_super_count']
+                            )
+                            
+                            daily_wash_counts['club_total'] = (
+                                daily_wash_counts['club_quality_count'] +
+                                daily_wash_counts['club_works_count'] +
+                                daily_wash_counts['club_ultimate_count'] +
+                                daily_wash_counts['club_super_count']
+                            )
+                            
+                            # Convert date to datetime
+                            daily_wash_counts['date'] = pd.to_datetime(daily_wash_counts['date'])
+                            
+                            # Sort by date
+                            daily_wash_counts = daily_wash_counts.sort_values('date')
+                            
+                            # Create time series visualization
+                            wash_count_trend = go.Figure()
+                            
+                            wash_count_trend.add_trace(
+                                go.Scatter(
+                                    x=daily_wash_counts['date'], 
+                                    y=daily_wash_counts['ppw_total'],
+                                    mode='lines', 
+                                    name='PPW Wash Count',
+                                    line=dict(color='royalblue')
+                                )
+                            )
+                            
+                            wash_count_trend.add_trace(
+                                go.Scatter(
+                                    x=daily_wash_counts['date'], 
+                                    y=daily_wash_counts['club_total'],
+                                    mode='lines', 
+                                    name='Club Wash Count',
+                                    line=dict(color='darkgreen')
+                                )
+                            )
+                            
+                            wash_count_trend.update_layout(
+                                title_text="PPW vs Club Wash Counts Over Time",
+                                xaxis_title="Date",
+                                yaxis_title="Number of Washes",
+                                legend=dict(x=0, y=1.1, orientation='h')
+                            )
+                            
+                            st.plotly_chart(wash_count_trend, use_container_width=True)
+                        except Exception as e:
+                            st.info(f"Could not generate wash count time series: {e}")
+                    else:
+                        st.info("No PPW or Club wash count data available for the selected period.")
+                except Exception as e:
+                    st.info(f"Could not generate PPW vs Club wash count comparison: {e}")
+                
+                # Membership breakdown
+                st.subheader("Membership Revenue Analysis")
+                
+                # Calculate membership stats for PPW
+                total_ppw_quality = filtered_sales_df['gross_ppw_payments_quality'].sum() - filtered_sales_df['gross_ppw_refunds_quality'].sum()
+                total_ppw_works = filtered_sales_df['gross_ppw_payments_works'].sum() - filtered_sales_df['gross_ppw_refunds_works'].sum()
+                total_ppw_ultimate = filtered_sales_df['gross_ppw_payments_ultimate'].sum() - filtered_sales_df['gross_ppw_refunds_ultimate'].sum()
+                total_ppw_super = filtered_sales_df['gross_ppw_payments_super'].sum() - filtered_sales_df['gross_ppw_refunds_super'].sum()
+                
+                # Calculate total PPW revenue
+                total_ppw_revenue = total_ppw_quality + total_ppw_works + total_ppw_ultimate + total_ppw_super
+                
+                # Calculate membership stats for Club (if these columns exist)
+                # Assuming the Club sales follow a similar naming pattern - adjust if different
+                try:
+                    total_club_quality = filtered_sales_df['gross_club_payments_quality'].sum() - filtered_sales_df['gross_club_refunds_quality'].sum() if 'gross_club_payments_quality' in filtered_sales_df.columns else 0
+                    total_club_works = filtered_sales_df['gross_club_payments_works'].sum() - filtered_sales_df['gross_club_refunds_works'].sum() if 'gross_club_payments_works' in filtered_sales_df.columns else 0
+                    total_club_ultimate = filtered_sales_df['gross_club_payments_ultimate'].sum() - filtered_sales_df['gross_club_refunds_ultimate'].sum() if 'gross_club_payments_ultimate' in filtered_sales_df.columns else 0
+                    total_club_super = filtered_sales_df['gross_club_payments_super'].sum() - filtered_sales_df['gross_club_refunds_super'].sum() if 'gross_club_payments_super' in filtered_sales_df.columns else 0
+                    
+                    # Calculate total Club revenue
+                    total_club_revenue = total_club_quality + total_club_works + total_club_ultimate + total_club_super
+                except:
+                    # If the club revenue columns don't exist, estimate club revenue
+                    # by subtracting PPW revenue from total club_and_ppw_sales
+                    total_club_revenue = filtered_sales_df['club_and_ppw_sales'].sum() - total_ppw_revenue
+                    total_club_quality = 0
+                    total_club_works = 0
+                    total_club_ultimate = 0
+                    total_club_super = 0
+                
+                # Create membership revenue data
+                membership_data = pd.DataFrame({
+                    'membership_type': ['Quality', 'Works', 'Ultimate', 'Super'],
+                    'revenue': [total_ppw_quality, total_ppw_works, total_ppw_ultimate, total_ppw_super]
+                })
+                
+                # Remove zero revenue membership types
+                membership_data = membership_data[membership_data['revenue'] > 0]
+                
+                # Create membership counts data
+                membership_counts = pd.DataFrame({
+                    'membership_type': ['Quality', 'Works', 'Ultimate', 'Super'],
+                    'ppw_count': [
+                        filtered_sales_df['ppw_quality_count'].sum(),
+                        filtered_sales_df['ppw_works_count'].sum(),
+                        filtered_sales_df['ppw_ultimate_count'].sum(),
+                        filtered_sales_df['ppw_super_count'].sum()
+                    ],
+                    'club_count': [
+                        filtered_sales_df['club_quality_count'].sum(),
+                        filtered_sales_df['club_works_count'].sum(),
+                        filtered_sales_df['club_ultimate_count'].sum(),
+                        filtered_sales_df['club_super_count'].sum()
+                    ]
+                })
+                
+                # Remove zero count membership types
+                membership_counts = membership_counts[(membership_counts['ppw_count'] > 0) | (membership_counts['club_count'] > 0)]
+                
+                # Generate membership revenue chart if data exists
+                if not membership_data.empty:
+                    membership_rev_fig = px.bar(
+                        membership_data,
+                        x='membership_type',
+                        y='revenue',
+                        title='Membership Revenue by Type',
+                        labels={'revenue': 'Revenue ($)', 'membership_type': 'Membership Type'},
+                        color='membership_type',
+                        text_auto='.2s'
+                    )
+                    
+                    membership_rev_fig.update_traces(
+                        texttemplate='$%{y:,.2f}', 
+                        textposition='outside'
+                    )
+                    
+                    st.plotly_chart(membership_rev_fig, use_container_width=True)
+                
+                # Generate membership counts chart if data exists
+                if not membership_counts.empty:
+                    membership_counts_fig = px.bar(
+                        membership_counts,
+                        x='membership_type',
+                        y=['ppw_count', 'club_count'],
+                        title='Membership Counts by Type',
+                        labels={
+                            'value': 'Count', 
+                            'membership_type': 'Membership Type',
+                            'variable': 'Program'
+                        },
+                        barmode='group',
+                        text_auto=True
+                    )
+                    
+                    # Update names for legend
+                    membership_counts_fig.for_each_trace(lambda t: t.update(
+                        name=t.name.replace("_count", "").replace("_", " ").title(),
+                        legendgroup=t.name.replace("_count", "").replace("_", " ").title(),
+                        hovertemplate=t.hovertemplate.replace("_count", "").replace("_", " ").title()
+                    ))
+                    
+                    st.plotly_chart(membership_counts_fig, use_container_width=True)
+                
+                # Add PPW vs Club Sales Analysis
+                st.subheader("PPW vs Club Sales Comparison")
+                
+                # Create dataframe for PPW vs Club comparison
+                ppw_club_data = pd.DataFrame({
+                    'program': ['Pay Per Wash (PPW)', 'Club Membership'],
+                    'revenue': [total_ppw_revenue, total_club_revenue]
+                })
+                
+                # Create pie chart comparing PPW vs Club revenue
+                ppw_club_fig = px.pie(
+                    ppw_club_data,
+                    values='revenue',
+                    names='program',
+                    title='PPW vs Club Revenue Distribution',
+                    hole=0.4,
+                    color_discrete_map={'Pay Per Wash (PPW)': 'royalblue', 'Club Membership': 'darkgreen'}
+                )
+                
+                ppw_club_fig.update_traces(
+                    textinfo='percent+label+value',
+                    texttemplate='%{label}<br>$%{value:,.2f}<br>(%{percent})',
+                    hovertemplate='%{label}<br>$%{value:,.2f}<br>(%{percent})'
+                )
+                
+                st.plotly_chart(ppw_club_fig, use_container_width=True)
+                
+                # If we have detailed breakdown by tier for both programs, show this
+                if total_club_quality > 0 or total_club_works > 0 or total_club_ultimate > 0 or total_club_super > 0:
+                    # Create detail comparison by membership tier
+                    program_tiers = pd.DataFrame({
+                        'membership_type': ['Quality', 'Works', 'Ultimate', 'Super'],
+                        'PPW': [total_ppw_quality, total_ppw_works, total_ppw_ultimate, total_ppw_super],
+                        'Club': [total_club_quality, total_club_works, total_club_ultimate, total_club_super]
+                    })
+                    
+                    # Remove rows where both PPW and Club are zero
+                    program_tiers = program_tiers[(program_tiers['PPW'] > 0) | (program_tiers['Club'] > 0)]
+                    
+                    if not program_tiers.empty:
+                        # Create side-by-side bar chart
+                        program_tier_fig = px.bar(
+                            program_tiers,
+                            x='membership_type',
+                            y=['PPW', 'Club'],
+                            title='PPW vs Club Revenue by Membership Tier',
+                            labels={
+                                'value': 'Revenue ($)', 
+                                'membership_type': 'Membership Tier',
+                                'variable': 'Program'
+                            },
+                            barmode='group',
+                            color_discrete_map={'PPW': 'royalblue', 'Club': 'darkgreen'}
+                        )
+                        
+                        program_tier_fig.update_traces(texttemplate='$%{y:,.2f}', textposition='outside')
+                        
+                        st.plotly_chart(program_tier_fig, use_container_width=True)
+                
+                # Time series analysis of PPW vs Club over time
+                # We'll need to calculate this from the daily data if available
+                st.subheader("PPW vs Club Revenue Trends")
+                
+                try:
+                    # Attempt to create time series if we can identify the columns
+                    # Check if PPW columns exist in daily revenue
+                    if 'ppw_revenue' not in daily_revenue.columns:
+                        # Calculate daily PPW revenue
+                        ppw_cols = [c for c in filtered_sales_df.columns if 'ppw_' in c.lower() and ('payment' in c.lower() or 'refund' in c.lower())]
+                        
+                        if ppw_cols:
+                            # Group by date and calculate PPW and Club revenue
+                            daily_program_revenue = filtered_sales_df.groupby(filtered_sales_df['date'].dt.date).agg({
+                                'date': 'first',  # Keep one date per group
+                                'club_and_ppw_sales': 'sum'
+                            }).reset_index(drop=True)
+                            
+                            # Add PPW and estimate Club
+                            daily_program_revenue['ppw_revenue'] = filtered_sales_df.groupby(filtered_sales_df['date'].dt.date)[ppw_cols].sum().sum(axis=1).reset_index(drop=True)
+                            daily_program_revenue['club_revenue'] = daily_program_revenue['club_and_ppw_sales'] - daily_program_revenue['ppw_revenue']
+                            
+                            # Convert date to datetime
+                            daily_program_revenue['date'] = pd.to_datetime(daily_program_revenue['date'])
+                            
+                            # Create time series visualization
+                            program_trend_fig = go.Figure()
+                            
+                            program_trend_fig.add_trace(
+                                go.Scatter(
+                                    x=daily_program_revenue['date'], 
+                                    y=daily_program_revenue['ppw_revenue'],
+                                    mode='lines', 
+                                    name='PPW Revenue',
+                                    line=dict(color='royalblue')
+                                )
+                            )
+                            
+                            program_trend_fig.add_trace(
+                                go.Scatter(
+                                    x=daily_program_revenue['date'], 
+                                    y=daily_program_revenue['club_revenue'],
+                                    mode='lines', 
+                                    name='Club Revenue',
+                                    line=dict(color='darkgreen')
+                                )
+                            )
+                            
+                            program_trend_fig.update_layout(
+                                title_text="PPW vs Club Revenue Over Time",
+                                xaxis_title="Date",
+                                yaxis_title="Revenue ($)",
+                                legend=dict(x=0, y=1.1, orientation='h')
+                            )
+                            
+                            st.plotly_chart(program_trend_fig, use_container_width=True)
+                            
+                            # Calculate and show monthly trend
+                            filtered_sales_df['year_month'] = filtered_sales_df['date'].dt.strftime('%Y-%m')
+                            
+                            # Group by year-month
+                            monthly_program = filtered_sales_df.groupby('year_month').agg({
+                                'club_and_ppw_sales': 'sum'
+                            }).reset_index()
+                            
+                            # Add PPW data
+                            monthly_program['ppw_revenue'] = filtered_sales_df.groupby('year_month')[ppw_cols].sum().sum(axis=1).reset_index(drop=True)
+                            monthly_program['club_revenue'] = monthly_program['club_and_ppw_sales'] - monthly_program['ppw_revenue']
+                            
+                            # Format month for display
+                            monthly_program['formatted_month'] = monthly_program['year_month'].apply(format_year_month)
+                            
+                            # Sort chronologically 
+                            monthly_program = monthly_program.sort_values('year_month')
+                            
+                            # Create monthly program comparison
+                            monthly_program_fig = go.Figure()
+                            
+                            monthly_program_fig.add_trace(
+                                go.Bar(
+                                    x=monthly_program['formatted_month'],
+                                    y=monthly_program['ppw_revenue'],
+                                    name='PPW Revenue',
+                                    marker_color='royalblue'
+                                )
+                            )
+                            
+                            monthly_program_fig.add_trace(
+                                go.Bar(
+                                    x=monthly_program['formatted_month'],
+                                    y=monthly_program['club_revenue'],
+                                    name='Club Revenue',
+                                    marker_color='darkgreen'
+                                )
+                            )
+                            
+                            monthly_program_fig.update_layout(
+                                title_text="Monthly PPW vs Club Revenue",
+                                xaxis_title="Month",
+                                yaxis_title="Revenue ($)",
+                                barmode='group',
+                                legend=dict(x=0, y=1.1, orientation='h'),
+                                xaxis={'categoryorder': 'array', 'categoryarray': monthly_program['formatted_month'].tolist()}
+                            )
+                            
+                            st.plotly_chart(monthly_program_fig, use_container_width=True)
+                    else:
+                        st.info("PPW vs Club time series data not available with the current dataset.")
+                
+                except Exception as e:
+                    st.info(f"Could not generate PPW vs Club trends: {e}")
+                
+                # Single washes analysis
+                st.subheader("Single Wash Analysis")
+                
+                single_wash_data = pd.DataFrame({
+                    'wash_type': ['Quality', 'Works', 'Ultimate', 'Super'],
+                    'count': [
+                        filtered_sales_df['single_wash_quality_count'].sum(),
+                        filtered_sales_df['single_wash_works_count'].sum(),
+                        filtered_sales_df['single_wash_ultimate_count'].sum(),
+                        filtered_sales_df['single_wash_super_count'].sum()
+                    ]
+                })
+                
+                # Remove zero counts
+                single_wash_data = single_wash_data[single_wash_data['count'] > 0]
+                
+                # Create single wash chart if data exists
+                if not single_wash_data.empty:
+                    single_wash_fig = px.pie(
+                        single_wash_data,
+                        values='count',
+                        names='wash_type',
+                        title='Single Wash Distribution',
+                        hole=0.4
+                    )
+                    
+                    single_wash_fig.update_traces(
+                        textinfo='percent+label',
+                        hovertemplate='%{label}<br>Count: %{value}<br>(%{percent})'
+                    )
+                    
+                    st.plotly_chart(single_wash_fig, use_container_width=True)
+                else:
+                    st.info("No single wash data available for the selected period.")
+                
+                # Site comparisons
+                if selected_sites and len(selected_sites) > 1:
+                    st.subheader("Site Revenue Comparison")
+                    
+                    # Group by site
+                    site_revenue = filtered_sales_df.groupby('site_id').agg({
+                        'revenue': 'sum',
+                        'expense_total': 'sum',
+                        'cash_sales': 'sum',
+                        'credit_card_sales': 'sum',
+                        'club_and_ppw_sales': 'sum'
+                    }).reset_index()
+                    
+                    # Calculate net income
+                    site_revenue['net_income'] = site_revenue['revenue'] - site_revenue['expense_total']
+                    
+                    # Sort by revenue
+                    site_revenue = site_revenue.sort_values('revenue', ascending=False)
+                    
+                    # Create site revenue comparison chart
+                    site_rev_fig = px.bar(
+                        site_revenue,
+                        x='site_id',
+                        y=['revenue', 'expense_total', 'net_income'],
+                        title='Revenue and Expenses by Site',
+                        labels={
+                            'value': 'Amount ($)',
+                            'site_id': 'Site',
+                            'variable': 'Category'
+                        },
+                        barmode='group'
+                    )
+                    
+                    # Update names for legend
+                    site_rev_fig.for_each_trace(lambda t: t.update(
+                        name=t.name.replace("_", " ").title(),
+                        legendgroup=t.name.replace("_", " ").title(),
+                        hovertemplate=t.hovertemplate.replace("_", " ").title()
+                    ))
+                    
+                    st.plotly_chart(site_rev_fig, use_container_width=True)
+                    
+                    # Sales type by site
+                    site_sales_type = px.bar(
+                        site_revenue,
+                        x='site_id',
+                        y=['cash_sales', 'credit_card_sales', 'club_and_ppw_sales'],
+                        title='Sales Types by Site',
+                        labels={
+                            'value': 'Sales ($)',
+                            'site_id': 'Site',
+                            'variable': 'Sales Type'
+                        },
+                        barmode='stack'
+                    )
+                    
+                    # Update names for legend
+                    site_sales_type.for_each_trace(lambda t: t.update(
+                        name=t.name.replace("_sales", "").replace("_", " ").title(),
+                        legendgroup=t.name.replace("_sales", "").replace("_", " ").title(),
+                        hovertemplate=t.hovertemplate.replace("_sales", "").replace("_", " ").title()
+                    ))
+                    
+                    st.plotly_chart(site_sales_type, use_container_width=True)
+            else:
+                st.info("No sales data available for the selected filters. Please adjust your selection.")      
 
 except Exception as e:
     st.error(f"An error occurred: {e}")
