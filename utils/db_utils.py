@@ -1,5 +1,4 @@
-# utils/db_utils.py
-import pandas as pd
+#import pandas as pd
 import os
 import pyodbc
 import streamlit as st
@@ -12,6 +11,12 @@ def load_wash_data():
         database = st.secrets.get("DB_NAME")
         username = st.secrets.get("DB_USER")
         password = st.secrets.get("DB_PASSWORD")
+    except:
+        # Default values for local development
+        server = "ucw.database.windows.net"
+        database = "UnitedCarwashProduction"
+        username = "ucwreader"
+        password = "mBSzLC4frVCJglpmSbbg"
 
     # Build connection string for Azure SQL with ODBC 17 or 18 (whichever is available)
     try:
